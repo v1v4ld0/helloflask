@@ -1,24 +1,28 @@
 import sqlite3
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from Globals import DATABASE_NAME
 
 
 app = Flask(__name__)
 
-
+# Faz a conexão com o banco proposta na documentação do SQLite3 
 def get_db_connection():
-    conn = None
-    try:
-        conn = sqlite3.connect(DATABASE_NAME)
-        conn.row_factory = sqlite3.Row
-    except sqlite3.Error as e:
-        print('Não foi possível conectar')
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE_NAME)
+    return db
 
-    return conn
+# Fecha a conexão de acordo com a documentação do SQLite3
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
 
 @app.route("/")
 def index():
+    cur = get_db_connection().cursor()
     return (jsonify({"versao": 1}), 200)
 
 
@@ -43,19 +47,16 @@ def getUsuarios():
 
 
 def setUsuario(data):
-    # Criação do usuário.
     nome = data.get('nome')
     nascimento = data.get('nascimento')
-    # Persistir os dados no banco.
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        f'INSERT INTO tb_usuario(nome, nascimento) values ("{nome}", "{nascimento}")')
+        'INSERT INTO tb_usuario(nome, nascimento) VALUES (?, ?)', (nome, nascimento))
     conn.commit()
     id = cursor.lastrowid
     data['id'] = id
     conn.close()
-    # Retornar o usuário criado.
     return data
 
 
@@ -77,7 +78,8 @@ def getUsuarioById(id):
     conn = get_db_connection()
     cursor = conn.cursor()
     linha = cursor.execute(
-        f'SELECT * FROM tb_usuario WHERE id = {id}').fetchone()
+        'SELECT * FROM tb_usuario WHERE id = ?'
+        , (id,)).fetchone()
     if linha is not None:
         id = linha[0]
         nome = linha[1]
@@ -92,6 +94,42 @@ def getUsuarioById(id):
     return usuarioDict
 
 
+def updateUsuario(id, data):
+    # Criação do usuário.
+    nome = data.get('nome')
+    nascimento = data.get('nascimento')
+
+    # Persistir os dados no banco.
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE tb_usuario SET nome = ?, nascimento = ? WHERE id = ?', (nome, nascimento, id))
+    conn.commit()
+
+    rowupdate = cursor.rowcount
+
+    conn.close()
+    # Retornar a quantidade de linhas.
+    return rowupdate
+
+
+# Função criada para deletar um usuário pelo ID
+def deleteUsuario(id):
+
+    # Persistir os dados no banco.
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'DELETE FROM tb_usuario WHERE id = ?', (id,))
+    conn.commit()
+
+    rowdelete = cursor.rowcount
+
+    conn.close()
+    # Retornar a quantidade de linhas.
+    return rowdelete
+
+
 @app.route("/usuarios/<int:id>", methods=['GET', 'DELETE', 'PUT'])
 def usuario(id):
     if request.method == 'GET':
@@ -100,3 +138,20 @@ def usuario(id):
             return jsonify(usuario), 200
         else:
             return {}, 404
+    elif request.method == 'PUT':
+        # Recuperar dados da requisição: json.
+        data = request.json
+        rowupdate = updateUsuario(id, data)
+        if rowupdate != 0:
+            return (data, 201)
+        else:
+            return (data, 304)
+    # Deleta um usuário se a requisição for um DELETE
+    elif request.method == 'DELETE':
+        rowdelete = deleteUsuario(id)
+        if rowdelete != 0:
+            return {}, 204
+        else:
+            return {}, 404
+
+

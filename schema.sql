@@ -4,6 +4,9 @@ CREATE TABLE tb_usuario (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nome TEXT NOT NULL,
     nascimento DATE NOT NULL
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
 );
 
 DROP TABLE IF EXISTS tb_produto;
